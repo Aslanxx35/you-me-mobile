@@ -1,0 +1,2 @@
+import {apiClient} from './client'; import {API_ENDPOINTS} from '../../constants/api'; import {cacheGet,cacheSet} from '../cache';
+export const dailyApi={getTodayReading:async(sign:string)=>{const key=`daily:${sign}:${new Date().toISOString().slice(0,10)}`;const cached=await cacheGet<any>(key,24*60*60*1000);if(cached)return {data:cached};const r=await apiClient.post(API_ENDPOINTS.daily,{sign,date:new Date().toISOString().slice(0,10)});await cacheSet(key,r.data);return r.data?{data:r.data}:r;}};
