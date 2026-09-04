@@ -1,0 +1,3 @@
+import {create} from 'zustand'; import AsyncStorage from '@react-native-async-storage/async-storage'; import {scoreShadow} from '../data/shadow';
+interface State{answers:Record<number,number>;results:any;setAnswer:(id:number,a:number)=>void;complete:()=>void;reset:()=>void;hydrate:()=>Promise<void>}
+export const useShadowStore=create<State>((set,get)=>({answers:{},results:null,setAnswer:(id,a)=>set(s=>({answers:{...s.answers,[id]:a}})),complete:()=>{const results=scoreShadow(get().answers);set({results});void AsyncStorage.setItem('shadow.result',JSON.stringify(results));},reset:()=>set({answers:{},results:null}),hydrate:async()=>{const r=await AsyncStorage.getItem('shadow.result');if(r)set({results:JSON.parse(r)})}}));
