@@ -1,0 +1,3 @@
+import {create} from 'zustand'; import AsyncStorage from '@react-native-async-storage/async-storage';
+interface State{accepted:boolean;analytics:boolean;hydrated:boolean;setAccepted:(v:boolean)=>void;setAnalytics:(v:boolean)=>void;hydrate:()=>Promise<void>}
+export const usePrivacyStore=create<State>((set)=>({accepted:false,analytics:false,hydrated:false,setAccepted:v=>{set({accepted:v});void AsyncStorage.setItem('privacy.accepted',String(v));},setAnalytics:v=>{set({analytics:v});void AsyncStorage.setItem('privacy.analytics',String(v));},hydrate:async()=>{const [a,b]=await Promise.all([AsyncStorage.getItem('privacy.accepted'),AsyncStorage.getItem('privacy.analytics')]);set({accepted:a==='true',analytics:b==='true',hydrated:true});}}));
