@@ -1,0 +1,6 @@
+import {useState} from 'react';
+import {Text,TextInput,TouchableOpacity,Alert} from 'react-native';
+import {useLocalSearchParams,router} from 'expo-router';
+import {Screen,s} from '../../src/components/Screen';
+import {authApi} from '../../src/services/api/auth';
+export default function ResetPassword(){const params=useLocalSearchParams<{token?:string}>();const token=String(params.token||'');const [password,setPassword]=useState('');const [busy,setBusy]=useState(false);const submit=async()=>{if(token.length<32||password.length<8)return Alert.alert('Eksik bilgi','Geçerli bağlantı ve en az 8 karakterlik yeni şifre gerekli.');try{setBusy(true);await authApi.resetPassword(token,password);Alert.alert('Tamamlandı','Şifren güncellendi.',[{text:'Giriş yap',onPress:()=>router.replace('/(auth)/login')}]);}catch(e:any){Alert.alert('Hata',e?.response?.data?.error||'Bağlantı geçersiz veya süresi dolmuş.');}finally{setBusy(false)}};return <Screen><Text style={s.title}>Yeni Şifre</Text><TextInput style={s.input} secureTextEntry placeholder="Yeni şifre" placeholderTextColor="#777" value={password} onChangeText={setPassword}/><TouchableOpacity style={s.button} disabled={busy} onPress={submit}><Text style={s.buttonText}>{busy?'Kaydediliyor...':'Şifreyi Güncelle'}</Text></TouchableOpacity></Screen>}
