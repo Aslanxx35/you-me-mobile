@@ -1,0 +1,1 @@
+import React from 'react'; import Pdf from 'react-native-pdf'; import {View} from 'react-native'; export function PdfViewer({uri}:{uri:string}){return <View style={{flex:1}}><Pdf source={{uri}} style={{flex:1}}/></View>}
