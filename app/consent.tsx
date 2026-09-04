@@ -1,0 +1,1 @@
+import {useEffect} from 'react'; import {router} from 'expo-router'; import {ConsentGate} from '../src/components/ConsentGate'; import {usePrivacyStore} from '../src/stores/privacyStore'; export default function Consent(){const accepted=usePrivacyStore(x=>x.accepted);useEffect(()=>{if(accepted)router.replace('/(auth)/welcome')},[accepted]);return <ConsentGate><></></ConsentGate>}
