@@ -1,0 +1,1 @@
+import {View,ActivityIndicator,Text} from 'react-native'; import {COLORS} from '../constants/colors'; export function Loading({label='Yükleniyor...'}:{label?:string}){return <View style={{padding:30,alignItems:'center'}}><ActivityIndicator color={COLORS.dark.gold}/><Text style={{color:COLORS.dark.textDim,marginTop:10}}>{label}</Text></View>}
