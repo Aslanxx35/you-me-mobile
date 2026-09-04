@@ -1,0 +1,1 @@
+import {apiClient} from './client'; export const userApi={deleteAccount:()=>apiClient.delete('/users/me'),exportData:()=>apiClient.get('/users/me/export'),updateProfile:(data:any)=>apiClient.patch('/users/me',data)};
