@@ -1,4 +1,4 @@
-name: Build Android APK (local, no EAS)
+name: Build Android APK
 
 on:
   workflow_dispatch:
@@ -6,6 +6,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      EXPO_PUBLIC_API_URL: https://you-me-backend.onrender.com/api/v1
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -14,29 +18,54 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Prebuild native Android project
-        run: npx expo prebuild --platform android --no-install
-        env:
-          EXPO_PUBLIC_API_URL: https://you-me-backend.onrender.com/api/v1
+      - name: Expo Doctor
+        run: npx expo-doctor
+
+      - name: Test production JavaScript bundle
+        run: npx expo export
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --clean
+
+      - name: Show generated Android files
+        run: |
+          echo "===== ANDROID FILES ====="
+          ls -la android
+          echo "===== APP FILES ====="
+          ls -la android/app
+          echo "===== BUILD.GRADLE ====="
+          cat android/app/build.gradle
 
       - name: Build release APK
+        working-directory: android
         run: |
-          cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew clean
+          ./gradlew app:assembleRelease --stacktrace
+
+      - name: Inspect APK
+        run: |
+          echo "===== APK ====="
+          find android/app/build/outputs/apk/release -type f -print
+
+          echo "===== APK CONTENT ====="
+          unzip -l android/app/build/outputs/apk/release/*.apk \
+            | grep -E "index.android.bundle|assets/"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: you-me-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
