@@ -124,33 +124,4 @@ jobs:
           unzip -l "$APK" | grep -E "assets/" | tee -a "$GITHUB_STEP_SUMMARY" || true
 
           if ! unzip -l "$APK" | grep -qE "index\.android\.bundle"; then
-            echo "❌ APK içinde index.android.bundle bulunamadı — release build JS bundle'ı gömmemiş. CI başarısız."
-            exit 1
-          fi
-          echo "✅ index.android.bundle APK içinde bulundu" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Verify package metadata
-        run: |
-          APK="${{ steps.apk.outputs.apk_path }}"
-          BUILD_TOOLS=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
-          AAPT="$ANDROID_HOME/build-tools/$BUILD_TOOLS/aapt"
-          echo "### Paket metadata (aapt dump badging)" >> "$GITHUB_STEP_SUMMARY"
-          "$AAPT" dump badging "$APK" | grep -E "package:|application-label:|sdkVersion:" | tee -a "$GITHUB_STEP_SUMMARY"
-
-          PKG=$("$AAPT" dump badging "$APK" | grep -oP "package: name='\K[^']+")
-          if [ "$PKG" != "com.zenith.app" ]; then
-            echo "❌ Package name uyuşmuyor: beklenen com.zenith.app, bulunan $PKG"
-            exit 1
-          fi
-          echo "✅ Package name doğru: $PKG" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Verify signing (no secrets logged)
-        run: |
-          APK="${{ steps.apk.outputs.apk_path }}"
-          BUILD_TOOLS=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
-          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
-
-          echo "### Signing config (android/app/build.gradle, release bloğu)" >> "$GITHUB_STEP_SUMMARY"
-          awk '/buildTypes/,/^    }/' android/app/build.gradle | grep -A3 "release" | tee -a "$GITHUB_STEP_SUMMARY" || true
-
-          "$APKSIGNER" verify --print-certs "$APK" | grep -E "Signer #1 certificate|DN:" | tee -a "$GITHUB_STEP_SUMMARY" || echo "⚠️  apksigner s
+            echo "❌ APK içinde index.android.bundle bulunamadı — 
