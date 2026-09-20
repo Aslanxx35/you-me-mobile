@@ -1,0 +1,181 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+env:
+  EXPO_PUBLIC_API_URL: https://you-me-backend.onrender.com/api/v1
+  EXPO_NO_TELEMETRY: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Inspect repository config
+        run: |
+          echo "## Repo keşfi" >> "$GITHUB_STEP_SUMMARY"
+          for f in app.json app.config.js app.config.ts babel.config.js babel.config.cjs \
+                   metro.config.js eas.json .gitignore; do
+            if [ -f "$f" ]; then
+              echo "✅ $f mevcut" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "⚠️  $f yok" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          if [ -d android ]; then
+            echo "ℹ️  android/ klasörü repo'da source-controlled — prebuild --clean bunu sıfırlayacak" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ℹ️  android/ klasörü yok — CI'da expo prebuild ile üretilecek (CNG akışı)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "### Reanimated / Sentry / RevenueCat / Firebase kullanım taraması"
+          grep -rl "react-native-reanimated/plugin" babel.config.* 2>/dev/null && echo "✅ Reanimated babel plugin bulundu" || echo "⚠️  Reanimated babel plugin babel.config'te görünmüyor (react-native-reanimated ile gerekli)"
+          grep -rl "Purchases.configure\|react-native-purchases" src app 2>/dev/null | head -5 || true
+          grep -rl "Sentry.init\|@sentry/react-native" src app 2>/dev/null | head -5 || true
+          find . -maxdepth 3 -iname "google-services.json" -not -path "./node_modules/*" || echo "⚠️  google-services.json repo kökünde/android'de bulunamadı (Firebase kullanılıyorsa gerekli)"
+
+      - name: Expo Doctor
+        run: npx expo-doctor || echo "⚠️  expo-doctor uyarı verdi, build'i durdurmuyorum ama loglara bak"
+
+      - name: Test production JavaScript bundle (export)
+        run: |
+          npx expo export --platform android --output-dir /tmp/expo-export-test
+          echo "### expo export çıktısı" >> "$GITHUB_STEP_SUMMARY"
+          find /tmp/expo-export-test -type f | sed 's/^/  /' | tee -a "$GITHUB_STEP_SUMMARY"
+          if ! find /tmp/expo-export-test -type f | grep -q .; then
+            echo "❌ expo export hiçbir dosya üretmedi — JS tarafında derleme hatası var, Gradle'a geçmeden dur"
+            exit 1
+          fi
+
+      - name: Generate Android project (expo prebuild)
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Verify prebuild output exists
+        run: |
+          for f in android/app/build.gradle android/build.gradle android/settings.gradle android/gradlew; do
+            if [ ! -f "$f" ]; then
+              echo "❌ $f prebuild sonrası oluşmadı — prebuild başarısız sayılır"
+              exit 1
+            fi
+          done
+          echo "✅ Tüm gerekli Android proje dosyaları oluştu" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Audit Gradle JS-bundle settings
+        run: |
+          echo "### android/app/build.gradle — bundle ile ilgili satırlar" >> "$GITHUB_STEP_SUMMARY"
+          grep -nE "bundleInDebug|bundleInRelease|entryFile|bundleCommand|devDisabled|enableHermes|hermesEnabled" android/app/build.gradle | tee -a "$GITHUB_STEP_SUMMARY" || echo "(özel override bulunamadı — RN 0.74.5 varsayılan react{} Gradle plugin config'i kullanılıyor, bu normaldir)"
+
+          if grep -qE "bundleInRelease\s*=\s*false" android/app/build.gradle; then
+            echo "❌ bundleInRelease=false bulundu — bu, release APK'nın JS bundle'sız üretilmesine sebep olur. Otomatik kaldırılıyor."
+            sed -i '/bundleInRelease\s*=\s*false/d' android/app/build.gradle
+          fi
+          if grep -qE "devDisabled\s*=\s*false" android/app/build.gradle; then
+            echo "⚠️  devDisabled=false bulundu, release build'de dev-mode script yükleme davranışına yol açabilir, kaldırılıyor."
+            sed -i '/devDisabled\s*=\s*false/d' android/app/build.gradle
+          fi
+
+      - name: Build release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew clean
+          ./gradlew app:assembleRelease --stacktrace
+
+      - name: Locate and validate APK
+        id: apk
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -z "$APK" ]; then
+            echo "❌ Release APK üretilmedi"
+            exit 1
+          fi
+          SIZE=$(stat -c%s "$APK")
+          if [ "$SIZE" -le 0 ]; then
+            echo "❌ APK dosyası 0 byte"
+            exit 1
+          fi
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          echo "✅ APK üretildi: $APK ($SIZE bytes)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify JS bundle is embedded (hard fail if missing)
+        run: |
+          APK="${{ steps.apk.outputs.apk_path }}"
+          echo "### APK içeriği (assets/)" >> "$GITHUB_STEP_SUMMARY"
+          unzip -l "$APK" | grep -E "assets/" | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+          if ! unzip -l "$APK" | grep -qE "index\.android\.bundle"; then
+            echo "❌ APK içinde index.android.bundle bulunamadı — release build JS bundle'ı gömmemiş. CI başarısız."
+            exit 1
+          fi
+          echo "✅ index.android.bundle APK içinde bulundu" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify package metadata
+        run: |
+          APK="${{ steps.apk.outputs.apk_path }}"
+          BUILD_TOOLS=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          AAPT="$ANDROID_HOME/build-tools/$BUILD_TOOLS/aapt"
+          echo "### Paket metadata (aapt dump badging)" >> "$GITHUB_STEP_SUMMARY"
+          "$AAPT" dump badging "$APK" | grep -E "package:|application-label:|sdkVersion:" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          PKG=$("$AAPT" dump badging "$APK" | grep -oP "package: name='\K[^']+")
+          if [ "$PKG" != "com.zenith.app" ]; then
+            echo "❌ Package name uyuşmuyor: beklenen com.zenith.app, bulunan $PKG"
+            exit 1
+          fi
+          echo "✅ Package name doğru: $PKG" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify signing (no secrets logged)
+        run: |
+          APK="${{ steps.apk.outputs.apk_path }}"
+          BUILD_TOOLS=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
+
+          echo "### Signing config (android/app/build.gradle, release bloğu)" >> "$GITHUB_STEP_SUMMARY"
+          awk '/buildTypes/,/^    }/' android/app/build.gradle | grep -A3 "release" | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+          "$APKSIGNER" verify --print-certs "$APK" | grep -E "Signer #1 certificate|DN:" | tee -a "$GITHUB_STEP_SUMMARY" || echo "⚠️  apksigner sertifika bilgisini okuyamadı"
+
+          if grep -q "signingConfig signingConfigs.debug" android/app/build.gradle; then
+            echo "⚠️  Release APK, DEBUG keystore ile imzalanıyor — bu sadece test kurulumu içindir, Play Store'a yüklenemez." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Detect required secrets (no values logged)
+        run: |
+          echo "### Gerekebilecek secret/env değişkenleri" >> "$GITHUB_STEP_SUMMARY"
+          grep -rq "react-native-purchases" package.json && echo "- RevenueCat: react-native-purchases kurulu → Android public SDK key'i kodda (Constants/extra/env) tanımlı olmalı, aksi halde satın alma runtime'da başarısız olur (JS bundle hatasıyla karışmaz)." | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -rq "@sentry/react-native" package.json && echo "- Sentry: DSN gerekli. Build-time source map upload için SENTRY_AUTH_TOKEN secret'ı isteğe bağlı; yoksa sadece source map upload atlanır, APK build'i etkilenmez." | tee -a "$GITHUB_STEP_SUMMARY"
+          find . -maxdepth 3 -iname "google-services.json" -not -path "./node_modules/*" > /dev/null || echo "- Firebase/Notifications: google-services.json bulunamadı. expo-notifications push token'ı için gerekebilir; yoksa runtime'da sessizce push kaydı başarısız olur." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: you-me-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Final report
+        if: always()
+        run: |
+          echo "## Sonuç Özeti" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build komutu: ./gradlew app:assembleRelease" >> "$GITHUB_STEP_SUMMARY"
+          echo "- EAS kullanılmadı, tamamen local Gradle + expo prebuild" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Detaylar için yukarıdaki adım loglarına bak (bundle doğrulama, package name, signing, secret tespiti)" >> "$GITHUB_STEP_SUMMARY"
