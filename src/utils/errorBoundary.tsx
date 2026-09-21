@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { reportError } from '../services/errorReport';
+import { reportError } from '../services/errorReporting';
 import { COLORS } from '../constants/colors';
 export class AppErrorBoundary extends React.Component<React.PropsWithChildren, {hasError:boolean}> {
   state = { hasError: false };
